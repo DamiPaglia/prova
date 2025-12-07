@@ -6,7 +6,6 @@ from langchain_text_splitters import CharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_community.llms import HuggingFaceHub
-from langchain_community.chains import RetrievalQA
 import tempfile
 
 st.set_page_config(page_title="📚 Document AI Chatbot",
@@ -37,8 +36,10 @@ st.markdown("---")
 # -------------------- SESSION STATE -------------------- #
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
-if "qa_chain" not in st.session_state:
-    st.session_state.qa_chain = None
+if "retriever" not in st.session_state:
+    st.session_state.retriever = None
+if "llm" not in st.session_state:
+    st.session_state.llm = None
 if "document_loaded" not in st.session_state:
     st.session_state.document_loaded = False
 
@@ -212,25 +213,21 @@ if document_path and not st.session_state.document_loaded:
                 )
                 vectorstore = FAISS.from_texts(chunks, embeddings)
 
+                # Crea retriever
+                st.session_state.retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
+
                 # LLM
                 if hf_api_key:
                     os.environ["HUGGINGFACEHUB_API_TOKEN"] = hf_api_key
-                    llm = HuggingFaceHub(
+                    st.session_state.llm = HuggingFaceHub(
                         repo_id="HuggingFaceH4/zephyr-7b-beta",
                         model_kwargs={"temperature": 0.7, "max_length": 512}
                     )
                 else:
-                    llm = HuggingFaceHub(
+                    st.session_state.llm = HuggingFaceHub(
                         repo_id="mistralai/Mistral-7B-Instruct-v0.1",
                         model_kwargs={"temperature": 0.7, "max_length": 512}
                     )
-
-                # Catena QA
-                st.session_state.qa_chain = RetrievalQA.from_chain_type(
-                    llm=llm,
-                    chain_type="stuff",
-                    retriever=vectorstore.as_retriever(search_kwargs={"k": 3})
-                )
 
                 st.session_state.document_loaded = True
                 st.success("✅ Documento elaborato! Ora puoi fare domande.")
@@ -242,7 +239,7 @@ if document_path and not st.session_state.document_loaded:
             st.error(f"❌ Errore nell'elaborazione: {str(e)}")
 
 # -------------------- CHAT -------------------- #
-if st.session_state.qa_chain:
+if st.session_state.retriever and st.session_state.llm:
     user_input = st.chat_input("Fai una domanda al documento...", key="chat_input")
 
     if user_input:
@@ -252,7 +249,25 @@ if st.session_state.qa_chain:
 
         with st.spinner("🤔 Sto cercando la risposta..."):
             try:
-                response = st.session_state.qa_chain.run(user_input)
+                # Cerca i chunk rilevanti
+                docs = st.session_state.retriever.get_relevant_documents(user_input)
+                
+                # Costruisci il contesto
+                context = "\n\n".join([doc.page_content for doc in docs])
+                
+                # Crea il prompt
+                prompt = f"""Usa il seguente contesto per rispondere alla domanda. Se non sai la risposta, dillo semplicemente.
+
+Contesto:
+{context}
+
+Domanda: {user_input}
+
+Risposta:"""
+                
+                # Genera la risposta
+                response = st.session_state.llm(prompt)
+                
                 st.session_state.chat_history.append(
                     {"role": "assistant", "content": response}
                 )
