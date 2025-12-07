@@ -2,7 +2,7 @@ import streamlit as st
 import PyPDF2
 from docx import Document
 import os
-from langchain.text_splitter import CharacterTextSplitter
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.embeddings import HuggingFaceEmbeddings
 from langchain.vectorstores import FAISS
 from langchain.chains import RetrievalQA
@@ -48,8 +48,9 @@ def extract_pdf_to_text(pdf_path, output_txt_path):
         with open(pdf_path, 'rb') as pdf_file:
             pdf_reader = PyPDF2.PdfReader(pdf_file)
             for page_num, page in enumerate(pdf_reader.pages):
+                page_text = page.extract_text() or ""
                 text += f"--- Pagina {page_num + 1} ---\n"
-                text += page.extract_text() + "\n\n"
+                text += page_text + "\n\n"
         
         # Salva il testo estratto
         with open(output_txt_path, 'w', encoding='utf-8') as txt_file:
@@ -71,8 +72,10 @@ with st.sidebar:
         os.makedirs("documents")
     
     # Cerca file nella repo
-    repo_files = [f for f in os.listdir("documents") 
-                  if f.endswith(('.pdf', '.docx')) and not f.endswith('_testo.txt')]
+    repo_files = [
+        f for f in os.listdir("documents")
+        if f.endswith(('.pdf', '.docx')) and not f.endswith('_testo.txt')
+    ]
     
     if repo_files:
         st.write("**File disponibili:**")
@@ -115,11 +118,14 @@ with st.sidebar:
     
     # API Key Hugging Face
     st.write("### 🔑 API Key Hugging Face (Opzionale)")
-    hf_api_key = st.text_input("Inserisci la tua chiave API:", type="password", 
-                               help="Scarica da https://huggingface.co/settings/tokens")
+    hf_api_key = st.text_input(
+        "Inserisci la tua chiave API:", 
+        type="password",
+        help="Crea una token su https://huggingface.co/settings/tokens"
+    )
     
     if not hf_api_key:
-        st.info("💡 Usi un modello free. Per migliori risultati, aggiungi la tua API key Hugging Face")
+        st.info("💡 Usi un modello free. Per risultati migliori, aggiungi la tua API key Hugging Face")
 
 # Main content
 col1, col2 = st.columns([2, 1])
@@ -145,7 +151,7 @@ with col2:
         st.warning("⏳ Carica un documento...")
 
 # Load and process document
-if document_path and not st.session_state.document_loaded:
+if 'document_path' in locals() and document_path and not st.session_state.document_loaded:
     with st.spinner("📖 Elaborazione del documento..."):
         try:
             text = ""
@@ -160,7 +166,8 @@ if document_path and not st.session_state.document_loaded:
                 with open(document_path, 'rb') as pdf_file:
                     pdf_reader = PyPDF2.PdfReader(pdf_file)
                     for page in pdf_reader.pages:
-                        text += page.extract_text()
+                        page_text = page.extract_text() or ""
+                        text += page_text + "\n"
             
             # Se è un DOCX
             elif isinstance(document_path, str) and document_path.endswith('.docx'):
@@ -170,16 +177,17 @@ if document_path and not st.session_state.document_loaded:
             
             # Se è un file caricato
             else:
-                if document_path.name.endswith('.pdf'):
+                if hasattr(document_path, "name") and document_path.name.endswith('.pdf'):
                     with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
                         tmp.write(document_path.read())
                         tmp_path = tmp.name
                     with open(tmp_path, 'rb') as pdf_file:
                         pdf_reader = PyPDF2.PdfReader(pdf_file)
                         for page in pdf_reader.pages:
-                            text += page.extract_text()
+                            page_text = page.extract_text() or ""
+                            text += page_text + "\n"
                     os.remove(tmp_path)
-                elif document_path.name.endswith('.docx'):
+                elif hasattr(document_path, "name") and document_path.name.endswith('.docx'):
                     with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as tmp:
                         tmp.write(document_path.read())
                         tmp_path = tmp.name
@@ -189,14 +197,19 @@ if document_path and not st.session_state.document_loaded:
                     os.remove(tmp_path)
             
             if text:
-                # Split text into chunks
-                text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+                # Split text into chunks (NUOVO SPLITTER)
+                text_splitter = RecursiveCharacterTextSplitter(
+                    chunk_size=1000,
+                    chunk_overlap=200
+                )
                 chunks = text_splitter.split_text(text)
                 
                 st.info(f"📊 Documento suddiviso in {len(chunks)} sezioni")
                 
                 # Create embeddings and vector store
-                embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+                embeddings = HuggingFaceEmbeddings(
+                    model_name="sentence-transformers/all-MiniLM-L6-v2"
+                )
                 vectorstore = FAISS.from_texts(chunks, embeddings)
                 
                 # Initialize LLM
@@ -243,7 +256,7 @@ if st.session_state.qa_chain:
             except Exception as e:
                 st.error(f"❌ Errore nella risposta: {str(e)}")
 else:
-    if document_path:
+    if 'document_path' in locals() and document_path:
         st.info("⏳ Attendere l'elaborazione del documento...")
 
 st.markdown("---")
