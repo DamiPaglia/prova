@@ -2,7 +2,7 @@ import streamlit as st
 import PyPDF2
 from docx import Document
 import os
-from langchain.text_splitter import CharacterTextSplitter
+from langchain_text_splitters import CharacterTextSplitter
 from langchain.embeddings import HuggingFaceEmbeddings
 from langchain.vectorstores import FAISS
 from langchain.chains import RetrievalQA
@@ -198,7 +198,7 @@ if document_path and not st.session_state.document_loaded:
                     os.remove(tmp_path)
 
             if text:
-                # Split in chunk con CharacterTextSplitter
+                # Split in chunk con CharacterTextSplitter (nuovo pacchetto)
                 text_splitter = CharacterTextSplitter(
                     chunk_size=1000,
                     chunk_overlap=200
@@ -266,6 +266,6 @@ else:
 st.markdown("---")
 st.write("💡 **Pro Tips:**")
 st.write("- Metti i PDF/DOCX nella cartella 'documents' della repo")
-st.write("- I file di testo estratti vengono generati automaticamente (e puoi ignorarli su Git)")
+st.write("- I file di testo estratti vengono generati automaticamente")
 st.write("- Aggiungi una API key Hugging Face per risposte migliori")
 st.write("- Fai domande specifiche basate sul contenuto del documento")
