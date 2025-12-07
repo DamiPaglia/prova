@@ -6,7 +6,7 @@ from langchain_text_splitters import CharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_community.llms import HuggingFaceHub
-from langchain.chains import RetrievalQA
+from langchain_community.chains import RetrievalQA
 import tempfile
 
 st.set_page_config(page_title="📚 Document AI Chatbot",
