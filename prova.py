@@ -3,10 +3,10 @@ import PyPDF2
 from docx import Document
 import os
 from langchain_text_splitters import CharacterTextSplitter
-from langchain.embeddings import HuggingFaceEmbeddings
-from langchain.vectorstores import FAISS
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.vectorstores import FAISS
+from langchain_community.llms import HuggingFaceHub
 from langchain.chains import RetrievalQA
-from langchain.llms import HuggingFaceHub
 import tempfile
 
 st.set_page_config(page_title="📚 Document AI Chatbot",
@@ -198,7 +198,7 @@ if document_path and not st.session_state.document_loaded:
                     os.remove(tmp_path)
 
             if text:
-                # Split in chunk con CharacterTextSplitter (nuovo pacchetto)
+                # Split in chunk
                 text_splitter = CharacterTextSplitter(
                     chunk_size=1000,
                     chunk_overlap=200
