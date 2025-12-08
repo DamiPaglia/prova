@@ -7,7 +7,7 @@ from langchain_community.vectorstores import FAISS
 import os
 
 # ==================== ⬇️ INSERISCI QUI IL PATH DEL TUO FILE ⬇️ ==================== #
-DOCUMENT_PATH = "documents/Pagliarini-Damiano-report-finale.pdf"  # 👈 RIGA 11: MODIFICA QUI!
+DOCUMENT_PATH = "Project Work DACA Network Traffic Analyzer (3).pdf"  # 👈 RIGA 11: MODIFICA QUI!
 # ==================================================================================== #
 
 # ==================== ⬇️ OTTIENI GRATIS: https://console.groq.com ⬇️ ==================== #
