@@ -7,7 +7,7 @@ from langchain_community.vectorstores import FAISS
 import os
 
 # ==================== ⬇️ INSERISCI QUI IL PATH DEL TUO FILE ⬇️ ==================== #
-DOCUMENT_PATH = "documents/Project Work DACA Network Traffic Analyzer (3).pdf"
+DOCUMENT_PATH = "Project Work DACA Network Traffic Analyzer (3).pdf"
 # ==================================================================================== #
 
 st.set_page_config(
