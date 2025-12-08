@@ -5,10 +5,9 @@ from langchain_text_splitters import CharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 import requests
-import json
 
 # ==================== ⬇️ INSERISCI QUI IL PATH DEL TUO FILE ⬇️ ==================== #
-DOCUMENT_PATH = "Project Work DACA Network Traffic Analyzer (3).pdf"  # 👈 RIGA 12: MODIFICA QUI!
+DOCUMENT_PATH = "documents/Pagliarini-Damiano-report-finale.pdf"  # 👈 RIGA 12: MODIFICA QUI!
 # ==================================================================================== #
 
 # Configurazione pagina
@@ -175,17 +174,14 @@ st.markdown("""
 # ==================== SESSION STATE ==================== #
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
-if "retriever" not in st.session_state:
-    st.session_state.retriever = None
+if "vectorstore" not in st.session_state:
+    st.session_state.vectorstore = None
 if "document_loaded" not in st.session_state:
     st.session_state.document_loaded = False
 
 # ==================== FUNZIONI ==================== #
 def query_huggingface_api(prompt):
-    """
-    Chiama l'API HuggingFace SENZA TOKEN - Completamente gratuita
-    Usa modelli pubblici con rate limiting ma senza autenticazione
-    """
+    """Chiama l'API HuggingFace SENZA TOKEN - Completamente gratuita"""
     API_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2"
     
     headers = {"Content-Type": "application/json"}
@@ -252,7 +248,7 @@ def extract_text_from_document(file_path):
 
 @st.cache_resource
 def process_document(file_path):
-    """Elabora il documento e crea il retriever"""
+    """Elabora il documento e crea il vectorstore"""
     try:
         text, error = extract_text_from_document(file_path)
         if error:
@@ -270,9 +266,8 @@ def process_document(file_path):
         )
         
         vectorstore = FAISS.from_texts(chunks, embeddings)
-        retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
         
-        return retriever, f"Documento elaborato: {len(chunks)} sezioni indicizzate"
+        return vectorstore, f"Documento elaborato: {len(chunks)} sezioni indicizzate"
         
     except Exception as e:
         return None, f"Errore elaborazione: {str(e)}"
@@ -288,10 +283,10 @@ st.markdown("""
 # ==================== CARICAMENTO AUTOMATICO ==================== #
 if not st.session_state.document_loaded:
     with st.spinner("🔄 Caricamento documento in corso..."):
-        retriever, message = process_document(DOCUMENT_PATH)
+        vectorstore, message = process_document(DOCUMENT_PATH)
         
-        if retriever:
-            st.session_state.retriever = retriever
+        if vectorstore:
+            st.session_state.vectorstore = vectorstore
             st.session_state.document_loaded = True
             st.success(f"✅ {message}")
             st.info("🤖 AI pronta! Usa l'API HuggingFace gratuita (senza token richiesto)")
@@ -328,7 +323,7 @@ else:
     """, unsafe_allow_html=True)
 
 # ==================== INPUT CHAT ==================== #
-if st.session_state.retriever:
+if st.session_state.vectorstore:
     user_input = st.chat_input("💭 Scrivi la tua domanda qui...")
     
     if user_input:
@@ -342,8 +337,9 @@ if st.session_state.retriever:
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("🧠 Sto analizzando il documento..."):
                 try:
-                    docs = st.session_state.retriever.get_relevant_documents(user_input)
-                    context = "\n\n".join([doc.page_content for doc in docs[:3]])
+                    # ✅ CORREZIONE: usa similarity_search invece di get_relevant_documents
+                    docs = st.session_state.vectorstore.similarity_search(user_input, k=3)
+                    context = "\n\n".join([doc.page_content for doc in docs])
                     
                     prompt = f"""[INST] You are a helpful AI assistant. Answer the question based ONLY on the following context from a document. If the answer is not in the context, say you don't have that information.
 
