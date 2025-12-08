@@ -7,12 +7,8 @@ from langchain_community.vectorstores import FAISS
 import os
 
 # ==================== ⬇️ INSERISCI QUI IL PATH DEL TUO FILE ⬇️ ==================== #
-DOCUMENT_PATH = "Project Work DACA Network Traffic Analyzer (3).pdf"  # 👈 RIGA 11: MODIFICA QUI!
+DOCUMENT_PATH = "documents/Project Work DACA Network Traffic Analyzer (3).pdf"
 # ==================================================================================== #
-
-# ==================== ⬇️ OTTIENI GRATIS: https://console.groq.com ⬇️ ==================== #
-GROQ_API_KEY = "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"  # 👈 RIGA 15: Inserisci la tua chiave Groq (GRATUITA)
-# ======================================================================================== #
 
 st.set_page_config(
     page_title="Document AI Chat",
@@ -21,7 +17,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# ==================== CSS STILE CHATGPT (TESTO BIANCO) ==================== #
+# ==================== CSS STILE CHATGPT ==================== #
 st.markdown("""
 <style>
     .stApp {
@@ -29,7 +25,6 @@ st.markdown("""
         color: #FFFFFF !important;
     }
     
-    /* Forza testo bianco ovunque */
     .stMarkdown, .stMarkdown p, .stMarkdown span, .stMarkdown div {
         color: #FFFFFF !important;
     }
@@ -60,7 +55,6 @@ st.markdown("""
         font-size: 1em;
     }
     
-    /* Chat messages - TESTO BIANCO */
     .stChatMessage {
         background-color: #444654 !important;
         border: none !important;
@@ -85,7 +79,6 @@ st.markdown("""
         border-left: 4px solid #10a37f !important;
     }
     
-    /* Input chat */
     .stChatInputContainer {
         background-color: #40414f !important;
         border-radius: 12px !important;
@@ -189,15 +182,18 @@ st.markdown("""
         transform: translateX(5px);
     }
     
-    /* Expander */
-    .streamlit-expanderHeader {
+    .context-box {
+        background: #2d2e35;
+        border-radius: 10px;
+        padding: 15px;
+        margin: 15px 0;
+        border-left: 3px solid #10a37f;
         color: #FFFFFF !important;
-        background-color: #40414f !important;
     }
     
-    .streamlit-expanderContent {
-        color: #FFFFFF !important;
-        background-color: #2d2e35 !important;
+    .context-box h4 {
+        color: #10a37f !important;
+        margin-top: 0;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -209,21 +205,76 @@ if "vectorstore" not in st.session_state:
     st.session_state.vectorstore = None
 if "document_loaded" not in st.session_state:
     st.session_state.document_loaded = False
-if "full_text" not in st.session_state:
-    st.session_state.full_text = ""
+if "ai_mode" not in st.session_state:
+    st.session_state.ai_mode = "basic"  # "basic" o "advanced"
+
+# ==================== GESTIONE API KEY SICURA ==================== #
+def get_api_key():
+    """Prova a recuperare API key da Streamlit secrets (sicuro)"""
+    try:
+        return st.secrets["GROQ_API_KEY"]
+    except:
+        return None
+
+GROQ_API_KEY = get_api_key()
 
 # ==================== FUNZIONI ==================== #
+def generate_smart_response(context, question):
+    """
+    Genera una risposta intelligente SENZA API ESTERNA
+    Usa solo analisi del contesto e pattern matching
+    """
+    context_lower = context.lower()
+    question_lower = question.lower()
+    
+    # Riassunto
+    if any(word in question_lower for word in ["riassumi", "riassunto", "sintesi", "overview", "sommario"]):
+        # Prendi le prime 3 frasi significative
+        sentences = [s.strip() for s in context.split('.') if len(s.strip()) > 50]
+        summary = '. '.join(sentences[:5]) + '.'
+        
+        return f"""📋 **Riassunto del documento:**
+
+{summary}
+
+---
+💡 *Questo è un estratto automatico delle sezioni più rilevanti del documento. Per un'analisi più approfondita, puoi configurare l'AI avanzata.*"""
+    
+    # Cerca parole chiave nella domanda
+    keywords = [word for word in question_lower.split() if len(word) > 4]
+    
+    # Filtra le frasi del contesto che contengono le keyword
+    sentences = context.split('.')
+    relevant_sentences = []
+    
+    for sentence in sentences:
+        sentence_lower = sentence.lower()
+        if any(keyword in sentence_lower for keyword in keywords):
+            relevant_sentences.append(sentence.strip())
+    
+    if relevant_sentences:
+        response = "📄 **Informazioni trovate nel documento:**\n\n"
+        for i, sent in enumerate(relevant_sentences[:5], 1):
+            if sent:
+                response += f"{i}. {sent}.\n\n"
+        
+        response += "\n---\n💡 *Risposta generata dall'analisi semantica del documento.*"
+        return response
+    else:
+        return f"""❓ **Contenuto correlato:**
+
+{context[:1000]}...
+
+---
+💡 *Non ho trovato una corrispondenza esatta per la tua domanda. Prova a riformularla o attiva l'AI avanzata per risposte più elaborate.*"""
+
 def query_groq_api(prompt, context):
-    """
-    Usa Groq API - MOLTO PIÙ POTENTE e GRATUITA
-    Registrati su: https://console.groq.com (30 secondi)
-    """
+    """Usa Groq API solo se disponibile"""
     try:
         from groq import Groq
         
         client = Groq(api_key=GROQ_API_KEY)
         
-        # System message per migliorare le risposte
         messages = [
             {
                 "role": "system",
@@ -241,7 +292,7 @@ Rispondi in modo dettagliato e strutturato in italiano, utilizzando SOLO le info
         ]
         
         response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",  # Modello più potente di Groq
+            model="llama-3.3-70b-versatile",
             messages=messages,
             temperature=0.5,
             max_tokens=2000,
@@ -251,7 +302,7 @@ Rispondi in modo dettagliato e strutturato in italiano, utilizzando SOLO le info
         return response.choices[0].message.content
         
     except Exception as e:
-        return f"❌ Errore Groq API: {str(e)}\n\n💡 Assicurati di aver inserito la tua API key gratuita alla RIGA 15 del codice.\nOttienila su: https://console.groq.com"
+        return None
 
 def extract_text_from_document(file_path):
     """Estrae testo da PDF con migliore parsing"""
@@ -265,8 +316,7 @@ def extract_text_from_document(file_path):
                 
                 for page_num, page in enumerate(pdf_reader.pages):
                     page_text = page.extract_text() or ""
-                    # Pulisci il testo
-                    page_text = page_text.replace('\x00', '')  # Rimuovi null bytes
+                    page_text = page_text.replace('\x00', '')
                     text += page_text + "\n\n"
                 
                 st.info(f"📄 Estratte {total_pages} pagine dal PDF")
@@ -299,10 +349,9 @@ def process_document(file_path):
         if error:
             return None, None, error
         
-        # Chunking con overlap maggiore per contesto migliore
         text_splitter = CharacterTextSplitter(
-            chunk_size=1500,  # Chunk più grandi
-            chunk_overlap=300,  # Overlap maggiore per continuità
+            chunk_size=1500,
+            chunk_overlap=300,
             separator="\n"
         )
         chunks = text_splitter.split_text(text)
@@ -313,7 +362,7 @@ def process_document(file_path):
         
         vectorstore = FAISS.from_texts(chunks, embeddings)
         
-        return vectorstore, text, f"✅ Documento elaborato: {len(chunks)} sezioni indicizzate da {len(text)} caratteri"
+        return vectorstore, text, f"✅ Documento elaborato: {len(chunks)} sezioni indicizzate"
         
     except Exception as e:
         return None, None, f"Errore elaborazione: {str(e)}"
@@ -322,34 +371,39 @@ def process_document(file_path):
 st.markdown("""
 <div class="chat-header">
     <h1>🤖 Document AI Assistant</h1>
-    <p>Powered by Groq AI (Llama 3.3 70B) - Analisi professionale dei documenti</p>
+    <p>Analisi intelligente dei documenti - Funziona sempre, anche senza API key!</p>
 </div>
 """, unsafe_allow_html=True)
 
+# ==================== INFO MODALITÀ ==================== #
+col1, col2 = st.columns([3, 1])
+with col1:
+    if GROQ_API_KEY:
+        st.success("🚀 **Modalità AI Avanzata** - Groq Llama 3.3 70B attiva")
+        st.session_state.ai_mode = "advanced"
+    else:
+        st.info("⚡ **Modalità Base** - Analisi semantica attiva (nessuna API richiesta)")
+        with st.expander("💡 Vuoi risposte più elaborate?"):
+            st.markdown("""
+            **Attiva l'AI Avanzata (opzionale):**
+            
+            1. Ottieni una chiave gratuita su [console.groq.com](https://console.groq.com)
+            2. Su Streamlit Cloud: Settings → Secrets → aggiungi:
+               ```
+               GROQ_API_KEY = "gsk_tua_chiave"
+               ```
+            3. In locale: crea `.streamlit/secrets.toml` con la stessa chiave
+            
+            **La modalità base funziona già perfettamente!** 👍
+            """)
+
 # ==================== CARICAMENTO AUTOMATICO ==================== #
 if not st.session_state.document_loaded:
-    
-    # Verifica API Key
-    if GROQ_API_KEY == "gsk_TUA_CHIAVE_QUI":
-        st.error("⚠️ **API KEY MANCANTE!**")
-        st.warning("""
-        Per usare l'AI devi ottenere una chiave API GRATUITA:
-        
-        1. Vai su [**https://console.groq.com**](https://console.groq.com)
-        2. Crea un account (30 secondi)
-        3. Copia la tua API key
-        4. Incollala alla **RIGA 15** del codice: `GROQ_API_KEY = "gsk_..."`
-        
-        È completamente gratuito e non serve carta di credito! 🎉
-        """)
-        st.stop()
-    
     with st.spinner("🔄 Caricamento e analisi documento in corso..."):
         vectorstore, full_text, message = process_document(DOCUMENT_PATH)
         
         if vectorstore:
             st.session_state.vectorstore = vectorstore
-            st.session_state.full_text = full_text
             st.session_state.document_loaded = True
             st.success(message)
             st.rerun()
@@ -362,8 +416,9 @@ if not st.session_state.document_loaded:
 if st.session_state.document_loaded:
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
+        mode_text = "AI Avanzata" if st.session_state.ai_mode == "advanced" else "Analisi Base"
         st.markdown(
-            f'<div style="text-align:center;"><span class="status-badge"><span class="status-online"></span>AI pronta • Groq Llama 3.3 70B</span></div>',
+            f'<div style="text-align:center;"><span class="status-badge"><span class="status-online"></span>{mode_text} • Pronta</span></div>',
             unsafe_allow_html=True
         )
 
@@ -376,11 +431,11 @@ else:
     st.markdown("""
     <div class="welcome-box">
         <h3>💬 Benvenuto! Inizia a chattare con il documento</h3>
-        <p>L'AI analizzerà il documento in profondità per rispondere alle tue domande</p>
-        <div class="example-question">📋 Fai un riassunto dettagliato del documento</div>
-        <div class="example-question">🔍 Quali sono i concetti principali e le conclusioni?</div>
-        <div class="example-question">📊 Analizza la metodologia utilizzata</div>
-        <div class="example-question">❓ Spiega in dettaglio [argomento specifico]</div>
+        <p>L'assistente analizzerà il documento per rispondere alle tue domande</p>
+        <div class="example-question">📋 Fai un riassunto del documento</div>
+        <div class="example-question">🔍 Quali sono i concetti principali?</div>
+        <div class="example-question">📊 Cerca informazioni su [argomento]</div>
+        <div class="example-question">❓ Spiega [argomento specifico]</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -397,22 +452,35 @@ if st.session_state.vectorstore:
             st.markdown(user_input)
         
         with st.chat_message("assistant", avatar="🤖"):
-            with st.spinner("🧠 Analisi approfondita in corso..."):
+            with st.spinner("🧠 Analisi in corso..."):
                 try:
-                    # Per riassunti, usa più contesto
+                    # Determina numero di chunks
                     if any(word in user_input.lower() for word in ["riassumi", "riassunto", "sintesi", "sommario", "overview"]):
-                        # Usa più chunks per riassunti completi
-                        docs = st.session_state.vectorstore.similarity_search(user_input, k=8)
+                        k_chunks = 8
                     else:
-                        # Domande specifiche: meno chunks ma più rilevanti
-                        docs = st.session_state.vectorstore.similarity_search(user_input, k=5)
+                        k_chunks = 5
                     
+                    # Cerca nel documento
+                    docs = st.session_state.vectorstore.similarity_search(user_input, k=k_chunks)
                     context = "\n\n".join([doc.page_content for doc in docs])
                     
-                    # Genera risposta con Groq
-                    response = query_groq_api(user_input, context)
+                    # Genera risposta
+                    if st.session_state.ai_mode == "advanced":
+                        # Prova con Groq
+                        response = query_groq_api(user_input, context)
+                        if not response:
+                            # Fallback a modalità base
+                            response = generate_smart_response(context, user_input)
+                            response = "⚠️ *AI avanzata temporaneamente non disponibile. Risposta in modalità base:*\n\n" + response
+                    else:
+                        # Modalità base (sempre funzionante)
+                        response = generate_smart_response(context, user_input)
                     
                     st.markdown(response)
+                    
+                    # Mostra contesto (opzionale)
+                    with st.expander("📄 Vedi il contesto estratto dal documento"):
+                        st.text(context[:1500] + "..." if len(context) > 1500 else context)
                     
                     st.session_state.chat_history.append(
                         {"role": "assistant", "content": response}
@@ -435,9 +503,16 @@ with col2:
 
 # ==================== FOOTER INFO ==================== #
 st.markdown("---")
-st.markdown("""
-<div style="text-align: center; color: #FFFFFF; padding: 20px;">
-    <p><b>🚀 Powered by Groq AI</b> • Llama 3.3 70B Versatile</p>
-    <p>💡 API gratuita su <a href="https://console.groq.com" style="color: #10a37f;">console.groq.com</a></p>
-</div>
-""", unsafe_allow_html=True)
+if st.session_state.ai_mode == "advanced":
+    st.markdown("""
+    <div style="text-align: center; color: #FFFFFF; padding: 20px;">
+        <p><b>🚀 Modalità Avanzata</b> • Powered by Groq Llama 3.3 70B</p>
+    </div>
+    """, unsafe_allow_html=True)
+else:
+    st.markdown("""
+    <div style="text-align: center; color: #FFFFFF; padding: 20px;">
+        <p><b>⚡ Modalità Base</b> • Analisi semantica con ricerca vettoriale</p>
+        <p style="font-size: 0.9em;">Nessuna API key richiesta • Funziona sempre • Privacy totale</p>
+    </div>
+    """, unsafe_allow_html=True)
