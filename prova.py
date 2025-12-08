@@ -5,35 +5,178 @@ import os
 from langchain_text_splitters import CharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
-from langchain_community.llms import HuggingFaceHub
 import tempfile
 
-st.set_page_config(page_title="📚 Document AI Chatbot",
-                   layout="wide",
-                   initial_sidebar_state="expanded")
+# ==================== CONFIGURAZIONE PAGINA ==================== #
+st.set_page_config(
+    page_title="Document AI Chat",
+    page_icon="🤖",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
 
-# -------------------- UI HEADER -------------------- #
+# ==================== CSS STILE CHATGPT ==================== #
 st.markdown("""
-    <style>
-    .main-header {
-        color: #1f77b4;
-        font-size: 2.5em;
-        font-weight: bold;
-        margin-bottom: 10px;
+<style>
+    /* Sfondo principale dark mode */
+    .stApp {
+        background-color: #343541;
     }
-    .sub-header {
-        color: #666;
-        font-size: 1.1em;
-        margin-bottom: 20px;
+    
+    /* Nasconde elementi default Streamlit */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    
+    /* Container principale chat */
+    .main-chat-container {
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
     }
-    </style>
+    
+    /* Header stile ChatGPT */
+    .chat-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 20px;
+        border-radius: 15px;
+        margin-bottom: 30px;
+        text-align: center;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    }
+    
+    .chat-header h1 {
+        color: white;
+        font-size: 2em;
+        margin: 0;
+        font-weight: 600;
+    }
+    
+    .chat-header p {
+        color: rgba(255,255,255,0.9);
+        margin: 5px 0 0 0;
+        font-size: 0.95em;
+    }
+    
+    /* Messaggi chat */
+    .stChatMessage {
+        background-color: #444654 !important;
+        border: none !important;
+        border-radius: 12px !important;
+        margin-bottom: 12px !important;
+        padding: 16px !important;
+    }
+    
+    /* Messaggio utente */
+    .stChatMessage[data-testid="user-message"] {
+        background-color: #343541 !important;
+        border-left: 3px solid #667eea !important;
+    }
+    
+    /* Messaggio AI */
+    .stChatMessage[data-testid="assistant-message"] {
+        background-color: #444654 !important;
+        border-left: 3px solid #10a37f !important;
+    }
+    
+    /* Input chat */
+    .stChatInputContainer {
+        background-color: #40414f !important;
+        border-radius: 12px !important;
+        border: 1px solid #565869 !important;
+        margin-top: 20px !important;
+    }
+    
+    /* Pulsanti */
+    .stButton button {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        padding: 10px 24px;
+        font-weight: 600;
+        transition: all 0.3s;
+    }
+    
+    .stButton button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    }
+    
+    /* Sidebar dark */
+    section[data-testid="stSidebar"] {
+        background-color: #202123 !important;
+    }
+    
+    section[data-testid="stSidebar"] .stMarkdown {
+        color: #ececf1 !important;
+    }
+    
+    /* File uploader */
+    .stFileUploader {
+        background-color: #2d2e35;
+        border-radius: 10px;
+        padding: 15px;
+        border: 1px dashed #565869;
+    }
+    
+    /* Selectbox */
+    .stSelectbox {
+        color: white !important;
+    }
+    
+    /* Alert boxes */
+    .stAlert {
+        background-color: #2d2e35 !important;
+        border-radius: 10px !important;
+        border-left: 4px solid #667eea !important;
+        color: #ececf1 !important;
+    }
+    
+    /* Spinner */
+    .stSpinner > div {
+        border-top-color: #667eea !important;
+    }
+    
+    /* Text input */
+    .stTextInput input {
+        background-color: #40414f !important;
+        color: white !important;
+        border: 1px solid #565869 !important;
+        border-radius: 8px !important;
+    }
+    
+    /* Info badge */
+    .info-badge {
+        display: inline-block;
+        background: #10a37f;
+        color: white;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 0.85em;
+        font-weight: 600;
+        margin: 5px;
+    }
+    
+    /* Status indicator */
+    .status-online {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        background: #10a37f;
+        border-radius: 50%;
+        margin-right: 8px;
+        animation: pulse 2s infinite;
+    }
+    
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+    }
+</style>
 """, unsafe_allow_html=True)
 
-st.markdown('<div class="main-header">📚 Document AI Chatbot</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">Fai domande al tuo documento PDF o DOCX</div>', unsafe_allow_html=True)
-st.markdown("---")
-
-# -------------------- SESSION STATE -------------------- #
+# ==================== SESSION STATE ==================== #
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 if "retriever" not in st.session_state:
@@ -42,245 +185,338 @@ if "llm" not in st.session_state:
     st.session_state.llm = None
 if "document_loaded" not in st.session_state:
     st.session_state.document_loaded = False
+if "document_name" not in st.session_state:
+    st.session_state.document_name = ""
 
-# -------------------- FUNZIONE: estrai testo PDF -------------------- #
+# ==================== FUNZIONI ==================== #
 def extract_pdf_to_text(pdf_path, output_txt_path):
-    """Estrae testo da PDF e lo salva in un file .txt nascosto."""
+    """Estrae testo da PDF e lo salva in un file .txt"""
     try:
         text = ""
         with open(pdf_path, "rb") as pdf_file:
             pdf_reader = PyPDF2.PdfReader(pdf_file)
             for page_num, page in enumerate(pdf_reader.pages):
                 page_text = page.extract_text() or ""
-                text += f"--- Pagina {page_num + 1} ---\n"
-                text += page_text + "\n\n"
-
+                text += f"--- Pagina {page_num + 1} ---\n{page_text}\n\n"
+        
         with open(output_txt_path, "w", encoding="utf-8") as txt_file:
             txt_file.write(text)
-
         return True
     except Exception as e:
-        st.error(f"❌ Errore nell'estrazione: {str(e)}")
+        st.error(f"❌ Errore estrazione: {str(e)}")
         return False
 
-# -------------------- SIDEBAR -------------------- #
-with st.sidebar:
-    st.header("⚙️ Configurazione")
-    st.write("### 📖 Carica il tuo documento:")
+def setup_groq_llm(api_key):
+    """Configura Groq API (gratuita e velocissima)"""
+    try:
+        from groq import Groq
+        client = Groq(api_key=api_key)
+        
+        def llm_call(prompt):
+            response = client.chat.completions.create(
+                messages=[
+                    {"role": "system", "content": "Sei un assistente AI specializzato nell'analisi di documenti. Rispondi in modo chiaro e preciso basandoti sul contesto fornito."},
+                    {"role": "user", "content": prompt}
+                ],
+                model="llama-3.1-70b-versatile",
+                temperature=0.5,
+                max_tokens=1024
+            )
+            return response.choices[0].message.content
+        
+        return llm_call
+    except Exception as e:
+        st.error(f"❌ Errore Groq API: {str(e)}")
+        return None
 
-    # Cartella documents
+def setup_gemini_llm(api_key):
+    """Configura Google Gemini API (gratuita con 2M context)"""
+    try:
+        import google.generativeai as genai
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        
+        def llm_call(prompt):
+            response = model.generate_content(prompt)
+            return response.text
+        
+        return llm_call
+    except Exception as e:
+        st.error(f"❌ Errore Gemini API: {str(e)}")
+        return None
+
+def process_document(document_path, doc_name):
+    """Elabora il documento e crea il retriever"""
+    try:
+        text = ""
+        
+        # Estrazione testo
+        if isinstance(document_path, str) and document_path.endswith(".txt"):
+            with open(document_path, "r", encoding="utf-8") as f:
+                text = f.read()
+        
+        elif isinstance(document_path, str) and document_path.endswith(".pdf"):
+            with open(document_path, "rb") as pdf_file:
+                pdf_reader = PyPDF2.PdfReader(pdf_file)
+                for page in pdf_reader.pages:
+                    text += (page.extract_text() or "") + "\n"
+        
+        elif isinstance(document_path, str) and document_path.endswith(".docx"):
+            doc = Document(document_path)
+            for paragraph in doc.paragraphs:
+                text += paragraph.text + "\n"
+        
+        else:  # File uploadato
+            if hasattr(document_path, "name") and document_path.name.endswith(".pdf"):
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                    tmp.write(document_path.read())
+                    tmp_path = tmp.name
+                with open(tmp_path, "rb") as pdf_file:
+                    pdf_reader = PyPDF2.PdfReader(pdf_file)
+                    for page in pdf_reader.pages:
+                        text += (page.extract_text() or "") + "\n"
+                os.remove(tmp_path)
+            
+            elif hasattr(document_path, "name") and document_path.name.endswith(".docx"):
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp:
+                    tmp.write(document_path.read())
+                    tmp_path = tmp.name
+                doc = Document(tmp_path)
+                for paragraph in doc.paragraphs:
+                    text += paragraph.text + "\n"
+                os.remove(tmp_path)
+        
+        if not text.strip():
+            return None, "Nessun testo estratto dal documento"
+        
+        # Chunking
+        text_splitter = CharacterTextSplitter(
+            chunk_size=1000,
+            chunk_overlap=200
+        )
+        chunks = text_splitter.split_text(text)
+        
+        # Embeddings e vectorstore
+        embeddings = HuggingFaceEmbeddings(
+            model_name="sentence-transformers/all-MiniLM-L6-v2"
+        )
+        vectorstore = FAISS.from_texts(chunks, embeddings)
+        retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
+        
+        return retriever, f"✅ {len(chunks)} sezioni indicizzate"
+        
+    except Exception as e:
+        return None, f"❌ Errore: {str(e)}"
+
+# ==================== SIDEBAR ==================== #
+with st.sidebar:
+    st.markdown("### ⚙️ Configurazione")
+    st.markdown("---")
+    
+    # Selezione API
+    st.markdown("#### 🔑 API Provider")
+    api_provider = st.selectbox(
+        "Scegli il provider AI:",
+        ["Groq (Consigliato)", "Google Gemini", "HuggingFace"],
+        help="Groq è gratuito e velocissimo!"
+    )
+    
+    # API Key
+    if api_provider == "Groq (Consigliato)":
+        api_key = st.text_input(
+            "Groq API Key:",
+            type="password",
+            help="Gratuita su console.groq.com"
+        )
+    elif api_provider == "Google Gemini":
+        api_key = st.text_input(
+            "Gemini API Key:",
+            type="password",
+            help="Gratuita su aistudio.google.com"
+        )
+    else:
+        api_key = st.text_input(
+            "HuggingFace Token:",
+            type="password",
+            help="Su huggingface.co/settings/tokens"
+        )
+    
+    st.markdown("---")
+    
+    # Caricamento documento
+    st.markdown("#### 📄 Documento")
+    
     if not os.path.exists("documents"):
         os.makedirs("documents")
-
-    # File presenti nella repo
+    
     repo_files = [
         f for f in os.listdir("documents")
         if f.endswith((".pdf", ".docx")) and not f.endswith("_testo.txt")
     ]
-
+    
     document_path = None
-    use_repo_file = False
-
+    doc_name = ""
+    
     if repo_files:
-        st.write("**File disponibili nella repo:**")
-        for f in repo_files:
-            st.write(f"✅ {f}")
-
-        selected_file = st.selectbox("Seleziona un file:", repo_files)
+        st.markdown("**File nella repository:**")
+        selected_file = st.selectbox("📁 Seleziona:", repo_files)
         document_path = os.path.join("documents", selected_file)
-        use_repo_file = True
-
-        # Se è un PDF, crea/usa il .txt nascosto
+        doc_name = selected_file
+        
         if selected_file.endswith(".pdf"):
-            txt_filename = selected_file.replace(".pdf", "_testo.txt")
-            txt_path = os.path.join("documents", txt_filename)
-
+            txt_path = document_path.replace(".pdf", "_testo.txt")
             if not os.path.exists(txt_path):
-                with st.spinner("📄 Estrazione testo dal PDF in corso..."):
-                    ok = extract_pdf_to_text(document_path, txt_path)
-                    if ok:
-                        st.success("✅ Testo estratto e pronto!")
-
+                with st.spinner("📖 Estrazione testo..."):
+                    extract_pdf_to_text(document_path, txt_path)
             document_path = txt_path
-    else:
-        st.write("*Nessun file trovato nella cartella 'documents'*")
-
-    st.markdown("---")
-
-    # Upload manuale
-    uploaded_file = st.file_uploader("Oppure carica un nuovo file:", type=["pdf", "docx"])
-
-    if uploaded_file is not None:
-        use_repo_file = False
-        document_path = uploaded_file
-    elif not use_repo_file and not repo_files:
-        st.warning("⚠️ Carica un documento PDF o DOCX per iniziare")
-        document_path = None
-
-    st.markdown("---")
-
-    # API key HF
-    st.write("### 🔑 API Key Hugging Face (Opzionale)")
-    hf_api_key = st.text_input(
-        "Inserisci la tua chiave API:",
-        type="password",
-        help="Crea un token su https://huggingface.co/settings/tokens"
+    
+    uploaded_file = st.file_uploader(
+        "📤 Oppure carica un file:",
+        type=["pdf", "docx"],
+        help="PDF o DOCX"
     )
-
-    if not hf_api_key:
-        st.info("💡 Usi un modello free. Per risultati migliori, aggiungi la tua API key Hugging Face")
-
-# -------------------- LAYOUT PRINCIPALE -------------------- #
-col1, col2 = st.columns([2, 1])
-
-with col1:
-    st.write("### 💬 Chat")
-    if st.session_state.chat_history:
-        for message in st.session_state.chat_history:
-            if message["role"] == "user":
-                st.chat_message("user").write(message["content"])
+    
+    if uploaded_file:
+        document_path = uploaded_file
+        doc_name = uploaded_file.name
+    
+    st.markdown("---")
+    
+    # Pulsante elabora
+    if document_path:
+        if st.button("🚀 Elabora Documento", use_container_width=True):
+            if not api_key:
+                st.warning("⚠️ Inserisci prima l'API key!")
             else:
-                st.chat_message("assistant").write(message["content"])
-    else:
-        st.info("📝 Carica un documento e fai una domanda per iniziare!")
-
-with col2:
-    st.write("### 📊 Info")
+                with st.spinner("🔄 Elaborazione in corso..."):
+                    # Setup LLM
+                    if api_provider == "Groq (Consigliato)":
+                        st.session_state.llm = setup_groq_llm(api_key)
+                    elif api_provider == "Google Gemini":
+                        st.session_state.llm = setup_gemini_llm(api_key)
+                    else:
+                        # HuggingFace Hub
+                        from langchain_community.llms import HuggingFaceHub
+                        os.environ["HUGGINGFACEHUB_API_TOKEN"] = api_key
+                        llm = HuggingFaceHub(
+                            repo_id="mistralai/Mistral-7B-Instruct-v0.2",
+                            model_kwargs={"temperature": 0.5, "max_length": 512}
+                        )
+                        st.session_state.llm = lambda prompt: llm(prompt)
+                    
+                    # Processa documento
+                    retriever, message = process_document(document_path, doc_name)
+                    
+                    if retriever:
+                        st.session_state.retriever = retriever
+                        st.session_state.document_loaded = True
+                        st.session_state.document_name = doc_name
+                        st.session_state.chat_history = []
+                        st.success(message)
+                        st.rerun()
+                    else:
+                        st.error(message)
+    
+    # Status
+    st.markdown("---")
+    st.markdown("#### 📊 Status")
     if st.session_state.document_loaded:
-        st.success("✅ Documento caricato!")
+        st.markdown(
+            f'<div><span class="status-online"></span>Documento caricato</div>',
+            unsafe_allow_html=True
+        )
+        st.markdown(f"**File:** `{st.session_state.document_name}`")
     else:
-        st.warning("⏳ Carica un documento...")
+        st.markdown("⏸️ In attesa di documento...")
+    
+    # Reset
+    if st.button("🔄 Nuova Chat", use_container_width=True):
+        st.session_state.chat_history = []
+        st.rerun()
 
-# -------------------- ELABORAZIONE DOCUMENTO -------------------- #
-if document_path and not st.session_state.document_loaded:
-    with st.spinner("📖 Elaborazione del documento..."):
-        try:
-            text = ""
+# ==================== MAIN CHAT AREA ==================== #
+# Header
+st.markdown("""
+<div class="chat-header">
+    <h1>🤖 Document AI Assistant</h1>
+    <p>Powered by AI • Analisi intelligente dei tuoi documenti</p>
+</div>
+""", unsafe_allow_html=True)
 
-            # Caso: file di testo creato dall'estrazione
-            if isinstance(document_path, str) and document_path.endswith(".txt"):
-                with open(document_path, "r", encoding="utf-8") as txt_file:
-                    text = txt_file.read()
+# Stato documento
+if st.session_state.document_loaded:
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.markdown(
+            f'<div style="text-align:center; color: #ececf1;"><span class="info-badge">📄 {st.session_state.document_name}</span></div>',
+            unsafe_allow_html=True
+        )
+else:
+    st.info("👈 Carica un documento dalla sidebar per iniziare")
 
-            # Caso: PDF su disco
-            elif isinstance(document_path, str) and document_path.endswith(".pdf"):
-                with open(document_path, "rb") as pdf_file:
-                    pdf_reader = PyPDF2.PdfReader(pdf_file)
-                    for page in pdf_reader.pages:
-                        page_text = page.extract_text() or ""
-                        text += page_text + "\n"
+# Chat messages
+if st.session_state.chat_history:
+    for message in st.session_state.chat_history:
+        with st.chat_message(message["role"], avatar="👤" if message["role"] == "user" else "🤖"):
+            st.markdown(message["content"])
+else:
+    if st.session_state.document_loaded:
+        st.markdown("""
+        <div style="text-align:center; color: #8e8ea0; padding: 40px;">
+            <p style="font-size: 1.2em;">💬 Inizia a fare domande sul documento!</p>
+            <p>Esempi:</p>
+            <p>• "Riassumi il contenuto principale"</p>
+            <p>• "Quali sono i punti chiave?"</p>
+            <p>• "Cerca informazioni su [argomento]"</p>
+        </div>
+        """, unsafe_allow_html=True)
 
-            # Caso: DOCX su disco
-            elif isinstance(document_path, str) and document_path.endswith(".docx"):
-                doc = Document(document_path)
-                for paragraph in doc.paragraphs:
-                    text += paragraph.text + "\n"
-
-            # Caso: file caricato via upload
-            else:
-                if hasattr(document_path, "name") and document_path.name.endswith(".pdf"):
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-                        tmp.write(document_path.read())
-                        tmp_path = tmp.name
-                    with open(tmp_path, "rb") as pdf_file:
-                        pdf_reader = PyPDF2.PdfReader(pdf_file)
-                        for page in pdf_reader.pages:
-                            page_text = page.extract_text() or ""
-                            text += page_text + "\n"
-                    os.remove(tmp_path)
-
-                elif hasattr(document_path, "name") and document_path.name.endswith(".docx"):
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp:
-                        tmp.write(document_path.read())
-                        tmp_path = tmp.name
-                    doc = Document(tmp_path)
-                    for paragraph in doc.paragraphs:
-                        text += paragraph.text + "\n"
-                    os.remove(tmp_path)
-
-            if text:
-                # Split in chunk
-                text_splitter = CharacterTextSplitter(
-                    chunk_size=1000,
-                    chunk_overlap=200
-                )
-                chunks = text_splitter.split_text(text)
-                st.info(f"📊 Documento suddiviso in {len(chunks)} sezioni")
-
-                # Embeddings e vettori
-                embeddings = HuggingFaceEmbeddings(
-                    model_name="sentence-transformers/all-MiniLM-L6-v2"
-                )
-                vectorstore = FAISS.from_texts(chunks, embeddings)
-
-                # Crea retriever
-                st.session_state.retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
-
-                # LLM
-                if hf_api_key:
-                    os.environ["HUGGINGFACEHUB_API_TOKEN"] = hf_api_key
-                    st.session_state.llm = HuggingFaceHub(
-                        repo_id="HuggingFaceH4/zephyr-7b-beta",
-                        model_kwargs={"temperature": 0.7, "max_length": 512}
-                    )
-                else:
-                    st.session_state.llm = HuggingFaceHub(
-                        repo_id="mistralai/Mistral-7B-Instruct-v0.1",
-                        model_kwargs={"temperature": 0.7, "max_length": 512}
-                    )
-
-                st.session_state.document_loaded = True
-                st.success("✅ Documento elaborato! Ora puoi fare domande.")
-                st.rerun()
-            else:
-                st.error("❌ Nessun testo estratto dal documento")
-
-        except Exception as e:
-            st.error(f"❌ Errore nell'elaborazione: {str(e)}")
-
-# -------------------- CHAT -------------------- #
+# Chat input
 if st.session_state.retriever and st.session_state.llm:
-    user_input = st.chat_input("Fai una domanda al documento...", key="chat_input")
-
+    user_input = st.chat_input("💭 Scrivi la tua domanda...")
+    
     if user_input:
+        # Aggiungi messaggio utente
         st.session_state.chat_history.append(
             {"role": "user", "content": user_input}
         )
+        
+        with st.chat_message("user", avatar="👤"):
+            st.markdown(user_input)
+        
+        # Genera risposta
+        with st.chat_message("assistant", avatar="🤖"):
+            with st.spinner("🧠 Sto pensando..."):
+                try:
+                    # Recupera documenti rilevanti
+                    docs = st.session_state.retriever.get_relevant_documents(user_input)
+                    context = "\n\n".join([doc.page_content for doc in docs])
+                    
+                    # Crea prompt
+                    prompt = f"""Basandoti SOLO sul seguente contesto, rispondi alla domanda in modo chiaro e conciso.
+Se la risposta non si trova nel contesto, dì "Non ho trovato informazioni sufficienti nel documento per rispondere a questa domanda."
 
-        with st.spinner("🤔 Sto cercando la risposta..."):
-            try:
-                # Cerca i chunk rilevanti
-                docs = st.session_state.retriever.get_relevant_documents(user_input)
-                
-                # Costruisci il contesto
-                context = "\n\n".join([doc.page_content for doc in docs])
-                
-                # Crea il prompt
-                prompt = f"""Usa il seguente contesto per rispondere alla domanda. Se non sai la risposta, dillo semplicemente.
-
-Contesto:
+CONTESTO:
 {context}
 
-Domanda: {user_input}
+DOMANDA: {user_input}
 
-Risposta:"""
-                
-                # Genera la risposta
-                response = st.session_state.llm(prompt)
-                
-                st.session_state.chat_history.append(
-                    {"role": "assistant", "content": response}
-                )
-                st.rerun()
-            except Exception as e:
-                st.error(f"❌ Errore nella risposta: {str(e)}")
-else:
-    if document_path:
-        st.info("⏳ Attendere l'elaborazione del documento...")
-
-st.markdown("---")
-st.write("💡 **Pro Tips:**")
-st.write("- Metti i PDF/DOCX nella cartella 'documents' della repo")
-st.write("- I file di testo estratti vengono generati automaticamente")
-st.write("- Aggiungi una API key Hugging Face per risposte migliori")
-st.write("- Fai domande specifiche basate sul contenuto del documento")
+RISPOSTA:"""
+                    
+                    # Genera risposta
+                    response = st.session_state.llm(prompt)
+                    
+                    # Mostra risposta
+                    st.markdown(response)
+                    
+                    # Salva in history
+                    st.session_state.chat_history.append(
+                        {"role": "assistant", "content": response}
+                    )
+                    
+                except Exception as e:
+                    error_msg = f"❌ Errore: {str(e)}"
+                    st.error(error_msg)
+                    st.session_state.chat_history.append(
+                        {"role": "assistant", "content": error_msg}
+                    )
