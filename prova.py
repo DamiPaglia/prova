@@ -7,10 +7,9 @@ from langchain_community.vectorstores import FAISS
 import requests
 
 # ==================== ⬇️ INSERISCI QUI IL PATH DEL TUO FILE ⬇️ ==================== #
-DOCUMENT_PATH = "Project Work DACA Network Traffic Analyzer (3).pdf"  # 👈 RIGA 12: MODIFICA QUI!
+DOCUMENT_PATH = "documents/Pagliarini-Damiano-report-finale.pdf"  # 👈 RIGA 12: MODIFICA QUI!
 # ==================================================================================== #
 
-# Configurazione pagina
 st.set_page_config(
     page_title="Document AI Chat",
     page_icon="🤖",
@@ -181,38 +180,61 @@ if "document_loaded" not in st.session_state:
 
 # ==================== FUNZIONI ==================== #
 def query_huggingface_api(prompt):
-    """Chiama l'API HuggingFace SENZA TOKEN - Completamente gratuita"""
-    API_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2"
+    """
+    Usa modelli GRATUITI disponibili su HuggingFace (stato "warm")
+    Prova 3 modelli diversi come fallback
+    """
     
-    headers = {"Content-Type": "application/json"}
+    # Lista di modelli gratuiti funzionanti (Dicembre 2025)
+    MODELS = [
+        "meta-llama/Llama-3.2-3B-Instruct",  # Modello leggero e veloce
+        "google/flan-t5-xxl",                # Alternativa Google
+        "bigscience/bloom-560m"              # Fallback leggero
+    ]
     
-    payload = {
-        "inputs": prompt,
-        "parameters": {
-            "max_new_tokens": 512,
-            "temperature": 0.7,
-            "top_p": 0.95,
-            "return_full_text": False
+    for model in MODELS:
+        API_URL = f"https://api-inference.huggingface.co/models/{model}"
+        
+        headers = {"Content-Type": "application/json"}
+        
+        payload = {
+            "inputs": prompt,
+            "parameters": {
+                "max_new_tokens": 400,
+                "temperature": 0.7,
+                "top_p": 0.9,
+                "do_sample": True
+            }
         }
-    }
+        
+        try:
+            response = requests.post(API_URL, headers=headers, json=payload, timeout=30)
+            
+            if response.status_code == 200:
+                result = response.json()
+                
+                # Gestisci diversi formati di risposta
+                if isinstance(result, list) and len(result) > 0:
+                    if "generated_text" in result[0]:
+                        return result[0]["generated_text"].strip()
+                    elif "summary_text" in result[0]:
+                        return result[0]["summary_text"].strip()
+                
+                return str(result)
+            
+            elif response.status_code == 503:
+                # Modello in loading, prova il prossimo
+                continue
+            
+            elif response.status_code == 410:
+                # Modello non disponibile, prova il prossimo
+                continue
+        
+        except Exception:
+            continue
     
-    try:
-        response = requests.post(API_URL, headers=headers, json=payload, timeout=30)
-        
-        if response.status_code == 200:
-            result = response.json()
-            if isinstance(result, list) and len(result) > 0:
-                return result[0].get("generated_text", "").strip()
-            return str(result)
-        
-        elif response.status_code == 503:
-            return "⏳ Il modello si sta caricando, riprova tra 20 secondi..."
-        
-        else:
-            return f"❌ Errore API (codice {response.status_code})"
-    
-    except Exception as e:
-        return f"❌ Errore di connessione: {str(e)}"
+    # Se tutti i modelli falliscono, usa una risposta semplice basata sul contesto
+    return "⚠️ Servizio AI temporaneamente non disponibile. Ecco il contenuto rilevante trovato nel documento che potrebbe rispondere alla tua domanda. Riprova tra qualche minuto per una risposta elaborata dall'AI."
 
 def extract_text_from_document(file_path):
     """Estrae testo da PDF o DOCX"""
@@ -289,7 +311,7 @@ if not st.session_state.document_loaded:
             st.session_state.vectorstore = vectorstore
             st.session_state.document_loaded = True
             st.success(f"✅ {message}")
-            st.info("🤖 AI pronta! Usa l'API HuggingFace gratuita (senza token richiesto)")
+            st.info("🤖 AI pronta! Usa modelli gratuiti HuggingFace (Llama 3.2)")
             st.rerun()
         else:
             st.error(f"❌ {message}")
@@ -337,20 +359,29 @@ if st.session_state.vectorstore:
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("🧠 Sto analizzando il documento..."):
                 try:
-                    # ✅ CORREZIONE: usa similarity_search invece di get_relevant_documents
+                    # Cerca nel documento
                     docs = st.session_state.vectorstore.similarity_search(user_input, k=3)
                     context = "\n\n".join([doc.page_content for doc in docs])
                     
-                    prompt = f"""[INST] You are a helpful AI assistant. Answer the question based ONLY on the following context from a document. If the answer is not in the context, say you don't have that information.
+                    # Mostra sempre il contesto trovato
+                    with st.expander("📄 Contenuto rilevante trovato"):
+                        st.text(context[:500] + "..." if len(context) > 500 else context)
+                    
+                    # Prompt ottimizzato
+                    prompt = f"""Based on the following document context, answer the question in Italian.
 
-Context:
-{context}
+Context: {context}
 
 Question: {user_input}
 
-Provide a clear and concise answer in Italian. [/INST]"""
+Answer concisely in Italian:"""
                     
+                    # Genera risposta AI
                     response = query_huggingface_api(prompt)
+                    
+                    # Se l'AI non risponde, dai comunque il contesto
+                    if "temporaneamente non disponibile" in response:
+                        response += f"\n\n**Contenuto trovato nel documento:**\n{context[:800]}"
                     
                     st.markdown(response)
                     
@@ -359,8 +390,11 @@ Provide a clear and concise answer in Italian. [/INST]"""
                     )
                     
                 except Exception as e:
-                    error_msg = f"❌ Errore durante la generazione della risposta: {str(e)}"
+                    error_msg = f"❌ Errore: {str(e)}"
                     st.error(error_msg)
+                    # Mostra comunque il contesto se disponibile
+                    if 'context' in locals():
+                        st.markdown(f"**Contenuto trovato:**\n{context[:500]}")
                     st.session_state.chat_history.append(
                         {"role": "assistant", "content": error_msg}
                     )
@@ -377,7 +411,7 @@ with col2:
 st.markdown("---")
 st.markdown("""
 <div style="text-align: center; color: #8e8ea0; padding: 20px;">
-    <p>💡 <b>Info:</b> Questa app usa l'API gratuita di HuggingFace (Mistral 7B) senza necessità di token.</p>
-    <p>⚡ Prima richiesta potrebbe richiedere 20 secondi (caricamento modello).</p>
+    <p>💡 <b>Info:</b> Usa modelli AI gratuiti di Meta (Llama 3.2) tramite HuggingFace</p>
+    <p>⚡ Nessuna API key richiesta • Completamente gratuito</p>
 </div>
 """, unsafe_allow_html=True)
