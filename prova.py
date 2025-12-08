@@ -11,7 +11,7 @@ DOCUMENT_PATH = "Project Work DACA Network Traffic Analyzer (3).pdf"  # 👈 RIG
 # ==================================================================================== #
 
 # ==================== ⬇️ OTTIENI GRATIS: https://console.groq.com ⬇️ ==================== #
-GROQ_API_KEY = "gsk_TUA_CHIAVE_QUI"  # 👈 RIGA 15: Inserisci la tua chiave Groq (GRATUITA)
+GROQ_API_KEY = "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"  # 👈 RIGA 15: Inserisci la tua chiave Groq (GRATUITA)
 # ======================================================================================== #
 
 st.set_page_config(
