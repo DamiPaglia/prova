@@ -4,11 +4,15 @@ from docx import Document
 from langchain_text_splitters import CharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
-import requests
+import os
 
 # ==================== ⬇️ INSERISCI QUI IL PATH DEL TUO FILE ⬇️ ==================== #
-DOCUMENT_PATH = "Project Work DACA Network Traffic Analyzer (3).pdf"  # 👈 RIGA 12: MODIFICA QUI!
+DOCUMENT_PATH = "documents/Pagliarini-Damiano-report-finale.pdf"  # 👈 RIGA 11: MODIFICA QUI!
 # ==================================================================================== #
+
+# ==================== ⬇️ OTTIENI GRATIS: https://console.groq.com ⬇️ ==================== #
+GROQ_API_KEY = "gsk_TUA_CHIAVE_QUI"  # 👈 RIGA 15: Inserisci la tua chiave Groq (GRATUITA)
+# ======================================================================================== #
 
 st.set_page_config(
     page_title="Document AI Chat",
@@ -17,11 +21,17 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# ==================== CSS STILE CHATGPT ==================== #
+# ==================== CSS STILE CHATGPT (TESTO BIANCO) ==================== #
 st.markdown("""
 <style>
     .stApp {
         background-color: #343541;
+        color: #FFFFFF !important;
+    }
+    
+    /* Forza testo bianco ovunque */
+    .stMarkdown, .stMarkdown p, .stMarkdown span, .stMarkdown div {
+        color: #FFFFFF !important;
     }
     
     #MainMenu {visibility: hidden;}
@@ -38,18 +48,19 @@ st.markdown("""
     }
     
     .chat-header h1 {
-        color: white;
+        color: white !important;
         font-size: 2.2em;
         margin: 0;
         font-weight: 600;
     }
     
     .chat-header p {
-        color: rgba(255,255,255,0.95);
+        color: rgba(255,255,255,0.95) !important;
         margin: 8px 0 0 0;
         font-size: 1em;
     }
     
+    /* Chat messages - TESTO BIANCO */
     .stChatMessage {
         background-color: #444654 !important;
         border: none !important;
@@ -57,6 +68,11 @@ st.markdown("""
         margin-bottom: 15px !important;
         padding: 18px !important;
         box-shadow: 0 2px 8px rgba(0,0,0,0.2) !important;
+        color: #FFFFFF !important;
+    }
+    
+    .stChatMessage p, .stChatMessage span, .stChatMessage div {
+        color: #FFFFFF !important;
     }
     
     .stChatMessage[data-testid="user-message"] {
@@ -69,6 +85,7 @@ st.markdown("""
         border-left: 4px solid #10a37f !important;
     }
     
+    /* Input chat */
     .stChatInputContainer {
         background-color: #40414f !important;
         border-radius: 12px !important;
@@ -85,7 +102,7 @@ st.markdown("""
     
     .stButton button {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
+        color: white !important;
         border: none;
         border-radius: 10px;
         padding: 12px 28px;
@@ -103,7 +120,7 @@ st.markdown("""
         background-color: #2d2e35 !important;
         border-radius: 12px !important;
         border-left: 4px solid #667eea !important;
-        color: #ececf1 !important;
+        color: #FFFFFF !important;
     }
     
     .stSpinner > div {
@@ -113,7 +130,7 @@ st.markdown("""
     .status-badge {
         display: inline-block;
         background: linear-gradient(135deg, #10a37f 0%, #0d8a6b 100%);
-        color: white;
+        color: white !important;
         padding: 8px 20px;
         border-radius: 25px;
         font-size: 0.95em;
@@ -142,14 +159,18 @@ st.markdown("""
         border-radius: 15px;
         padding: 30px;
         text-align: center;
-        color: #ececf1;
+        color: #FFFFFF !important;
         margin: 40px 0;
         border: 2px solid #40414f;
     }
     
     .welcome-box h3 {
-        color: #10a37f;
+        color: #10a37f !important;
         margin-bottom: 15px;
+    }
+    
+    .welcome-box p {
+        color: #FFFFFF !important;
     }
     
     .example-question {
@@ -157,7 +178,7 @@ st.markdown("""
         padding: 12px 20px;
         border-radius: 10px;
         margin: 10px 0;
-        color: #c5c5d2;
+        color: #FFFFFF !important;
         cursor: pointer;
         transition: all 0.3s;
         border-left: 3px solid #667eea;
@@ -166,6 +187,17 @@ st.markdown("""
     .example-question:hover {
         background: #4a4b5a;
         transform: translateX(5px);
+    }
+    
+    /* Expander */
+    .streamlit-expanderHeader {
+        color: #FFFFFF !important;
+        background-color: #40414f !important;
+    }
+    
+    .streamlit-expanderContent {
+        color: #FFFFFF !important;
+        background-color: #2d2e35 !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -177,76 +209,67 @@ if "vectorstore" not in st.session_state:
     st.session_state.vectorstore = None
 if "document_loaded" not in st.session_state:
     st.session_state.document_loaded = False
+if "full_text" not in st.session_state:
+    st.session_state.full_text = ""
 
 # ==================== FUNZIONI ==================== #
-def query_huggingface_api(prompt):
+def query_groq_api(prompt, context):
     """
-    Usa modelli GRATUITI disponibili su HuggingFace (stato "warm")
-    Prova 3 modelli diversi come fallback
+    Usa Groq API - MOLTO PIÙ POTENTE e GRATUITA
+    Registrati su: https://console.groq.com (30 secondi)
     """
-    
-    # Lista di modelli gratuiti funzionanti (Dicembre 2025)
-    MODELS = [
-        "meta-llama/Llama-3.2-3B-Instruct",  # Modello leggero e veloce
-        "google/flan-t5-xxl",                # Alternativa Google
-        "bigscience/bloom-560m"              # Fallback leggero
-    ]
-    
-    for model in MODELS:
-        API_URL = f"https://api-inference.huggingface.co/models/{model}"
+    try:
+        from groq import Groq
         
-        headers = {"Content-Type": "application/json"}
+        client = Groq(api_key=GROQ_API_KEY)
         
-        payload = {
-            "inputs": prompt,
-            "parameters": {
-                "max_new_tokens": 400,
-                "temperature": 0.7,
-                "top_p": 0.9,
-                "do_sample": True
+        # System message per migliorare le risposte
+        messages = [
+            {
+                "role": "system",
+                "content": "Sei un assistente AI esperto nell'analisi di documenti tecnici. Rispondi sempre in italiano in modo chiaro, preciso e dettagliato. Basa le tue risposte SOLO sul contesto fornito."
+            },
+            {
+                "role": "user",
+                "content": f"""Contesto dal documento:
+{context}
+
+Domanda: {prompt}
+
+Rispondi in modo dettagliato e strutturato in italiano, utilizzando SOLO le informazioni presenti nel contesto."""
             }
-        }
+        ]
         
-        try:
-            response = requests.post(API_URL, headers=headers, json=payload, timeout=30)
-            
-            if response.status_code == 200:
-                result = response.json()
-                
-                # Gestisci diversi formati di risposta
-                if isinstance(result, list) and len(result) > 0:
-                    if "generated_text" in result[0]:
-                        return result[0]["generated_text"].strip()
-                    elif "summary_text" in result[0]:
-                        return result[0]["summary_text"].strip()
-                
-                return str(result)
-            
-            elif response.status_code == 503:
-                # Modello in loading, prova il prossimo
-                continue
-            
-            elif response.status_code == 410:
-                # Modello non disponibile, prova il prossimo
-                continue
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",  # Modello più potente di Groq
+            messages=messages,
+            temperature=0.5,
+            max_tokens=2000,
+            top_p=0.9
+        )
         
-        except Exception:
-            continue
-    
-    # Se tutti i modelli falliscono, usa una risposta semplice basata sul contesto
-    return "⚠️ Servizio AI temporaneamente non disponibile. Ecco il contenuto rilevante trovato nel documento che potrebbe rispondere alla tua domanda. Riprova tra qualche minuto per una risposta elaborata dall'AI."
+        return response.choices[0].message.content
+        
+    except Exception as e:
+        return f"❌ Errore Groq API: {str(e)}\n\n💡 Assicurati di aver inserito la tua API key gratuita alla RIGA 15 del codice.\nOttienila su: https://console.groq.com"
 
 def extract_text_from_document(file_path):
-    """Estrae testo da PDF o DOCX"""
+    """Estrae testo da PDF con migliore parsing"""
     try:
         text = ""
         
         if file_path.endswith(".pdf"):
             with open(file_path, "rb") as pdf_file:
                 pdf_reader = PyPDF2.PdfReader(pdf_file)
+                total_pages = len(pdf_reader.pages)
+                
                 for page_num, page in enumerate(pdf_reader.pages):
                     page_text = page.extract_text() or ""
-                    text += f"\n--- Pagina {page_num + 1} ---\n{page_text}\n"
+                    # Pulisci il testo
+                    page_text = page_text.replace('\x00', '')  # Rimuovi null bytes
+                    text += page_text + "\n\n"
+                
+                st.info(f"📄 Estratte {total_pages} pagine dal PDF")
         
         elif file_path.endswith(".docx"):
             doc = Document(file_path)
@@ -270,15 +293,16 @@ def extract_text_from_document(file_path):
 
 @st.cache_resource
 def process_document(file_path):
-    """Elabora il documento e crea il vectorstore"""
+    """Elabora il documento con chunking ottimizzato"""
     try:
         text, error = extract_text_from_document(file_path)
         if error:
-            return None, error
+            return None, None, error
         
+        # Chunking con overlap maggiore per contesto migliore
         text_splitter = CharacterTextSplitter(
-            chunk_size=1000,
-            chunk_overlap=200,
+            chunk_size=1500,  # Chunk più grandi
+            chunk_overlap=300,  # Overlap maggiore per continuità
             separator="\n"
         )
         chunks = text_splitter.split_text(text)
@@ -289,29 +313,45 @@ def process_document(file_path):
         
         vectorstore = FAISS.from_texts(chunks, embeddings)
         
-        return vectorstore, f"Documento elaborato: {len(chunks)} sezioni indicizzate"
+        return vectorstore, text, f"✅ Documento elaborato: {len(chunks)} sezioni indicizzate da {len(text)} caratteri"
         
     except Exception as e:
-        return None, f"Errore elaborazione: {str(e)}"
+        return None, None, f"Errore elaborazione: {str(e)}"
 
 # ==================== HEADER ==================== #
 st.markdown("""
 <div class="chat-header">
     <h1>🤖 Document AI Assistant</h1>
-    <p>Intelligenza Artificiale gratuita per analizzare i tuoi documenti</p>
+    <p>Powered by Groq AI (Llama 3.3 70B) - Analisi professionale dei documenti</p>
 </div>
 """, unsafe_allow_html=True)
 
 # ==================== CARICAMENTO AUTOMATICO ==================== #
 if not st.session_state.document_loaded:
-    with st.spinner("🔄 Caricamento documento in corso..."):
-        vectorstore, message = process_document(DOCUMENT_PATH)
+    
+    # Verifica API Key
+    if GROQ_API_KEY == "gsk_TUA_CHIAVE_QUI":
+        st.error("⚠️ **API KEY MANCANTE!**")
+        st.warning("""
+        Per usare l'AI devi ottenere una chiave API GRATUITA:
+        
+        1. Vai su [**https://console.groq.com**](https://console.groq.com)
+        2. Crea un account (30 secondi)
+        3. Copia la tua API key
+        4. Incollala alla **RIGA 15** del codice: `GROQ_API_KEY = "gsk_..."`
+        
+        È completamente gratuito e non serve carta di credito! 🎉
+        """)
+        st.stop()
+    
+    with st.spinner("🔄 Caricamento e analisi documento in corso..."):
+        vectorstore, full_text, message = process_document(DOCUMENT_PATH)
         
         if vectorstore:
             st.session_state.vectorstore = vectorstore
+            st.session_state.full_text = full_text
             st.session_state.document_loaded = True
-            st.success(f"✅ {message}")
-            st.info("🤖 AI pronta! Usa modelli gratuiti HuggingFace (Llama 3.2)")
+            st.success(message)
             st.rerun()
         else:
             st.error(f"❌ {message}")
@@ -323,7 +363,7 @@ if st.session_state.document_loaded:
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.markdown(
-            f'<div style="text-align:center;"><span class="status-badge"><span class="status-online"></span>Documento caricato e pronto</span></div>',
+            f'<div style="text-align:center;"><span class="status-badge"><span class="status-online"></span>AI pronta • Groq Llama 3.3 70B</span></div>',
             unsafe_allow_html=True
         )
 
@@ -336,11 +376,11 @@ else:
     st.markdown("""
     <div class="welcome-box">
         <h3>💬 Benvenuto! Inizia a chattare con il documento</h3>
-        <p>Prova a fare domande come:</p>
-        <div class="example-question">📋 Riassumi il contenuto principale del documento</div>
-        <div class="example-question">🔍 Quali sono i punti chiave trattati?</div>
-        <div class="example-question">📊 Dammi informazioni specifiche su [argomento]</div>
-        <div class="example-question">❓ Cosa dice il documento riguardo a [tema]?</div>
+        <p>L'AI analizzerà il documento in profondità per rispondere alle tue domande</p>
+        <div class="example-question">📋 Fai un riassunto dettagliato del documento</div>
+        <div class="example-question">🔍 Quali sono i concetti principali e le conclusioni?</div>
+        <div class="example-question">📊 Analizza la metodologia utilizzata</div>
+        <div class="example-question">❓ Spiega in dettaglio [argomento specifico]</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -357,31 +397,20 @@ if st.session_state.vectorstore:
             st.markdown(user_input)
         
         with st.chat_message("assistant", avatar="🤖"):
-            with st.spinner("🧠 Sto analizzando il documento..."):
+            with st.spinner("🧠 Analisi approfondita in corso..."):
                 try:
-                    # Cerca nel documento
-                    docs = st.session_state.vectorstore.similarity_search(user_input, k=3)
+                    # Per riassunti, usa più contesto
+                    if any(word in user_input.lower() for word in ["riassumi", "riassunto", "sintesi", "sommario", "overview"]):
+                        # Usa più chunks per riassunti completi
+                        docs = st.session_state.vectorstore.similarity_search(user_input, k=8)
+                    else:
+                        # Domande specifiche: meno chunks ma più rilevanti
+                        docs = st.session_state.vectorstore.similarity_search(user_input, k=5)
+                    
                     context = "\n\n".join([doc.page_content for doc in docs])
                     
-                    # Mostra sempre il contesto trovato
-                    with st.expander("📄 Contenuto rilevante trovato"):
-                        st.text(context[:500] + "..." if len(context) > 500 else context)
-                    
-                    # Prompt ottimizzato
-                    prompt = f"""Based on the following document context, answer the question in Italian.
-
-Context: {context}
-
-Question: {user_input}
-
-Answer concisely in Italian:"""
-                    
-                    # Genera risposta AI
-                    response = query_huggingface_api(prompt)
-                    
-                    # Se l'AI non risponde, dai comunque il contesto
-                    if "temporaneamente non disponibile" in response:
-                        response += f"\n\n**Contenuto trovato nel documento:**\n{context[:800]}"
+                    # Genera risposta con Groq
+                    response = query_groq_api(user_input, context)
                     
                     st.markdown(response)
                     
@@ -392,9 +421,6 @@ Answer concisely in Italian:"""
                 except Exception as e:
                     error_msg = f"❌ Errore: {str(e)}"
                     st.error(error_msg)
-                    # Mostra comunque il contesto se disponibile
-                    if 'context' in locals():
-                        st.markdown(f"**Contenuto trovato:**\n{context[:500]}")
                     st.session_state.chat_history.append(
                         {"role": "assistant", "content": error_msg}
                     )
@@ -410,8 +436,8 @@ with col2:
 # ==================== FOOTER INFO ==================== #
 st.markdown("---")
 st.markdown("""
-<div style="text-align: center; color: #8e8ea0; padding: 20px;">
-    <p>💡 <b>Info:</b> Usa modelli AI gratuiti di Meta (Llama 3.2) tramite HuggingFace</p>
-    <p>⚡ Nessuna API key richiesta • Completamente gratuito</p>
+<div style="text-align: center; color: #FFFFFF; padding: 20px;">
+    <p><b>🚀 Powered by Groq AI</b> • Llama 3.3 70B Versatile</p>
+    <p>💡 API gratuita su <a href="https://console.groq.com" style="color: #10a37f;">console.groq.com</a></p>
 </div>
 """, unsafe_allow_html=True)
